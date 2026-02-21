@@ -1,4 +1,4 @@
-name: Build TDLib for Android
+name: Build Latest TDLib for Android (Feb 2026)
 
 on:
   workflow_dispatch:
@@ -12,39 +12,44 @@ jobs:
         with:
           repository: tdlib/td
           ref: master
+          fetch-depth: 1
 
-      - name: Install Build Dependencies
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake gperf php-cli zlib1g-dev libssl-dev build-essential
 
-      - name: Setup Android NDK
+      - name: Setup Android NDK r27c
         id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r27c
 
-      - name: Run Official Android Build Script
+      - name: Build TDLib (arm64-v8a)
         run: |
-          # The official script is in example/android/build.sh
-          # It handles OpenSSL cross-compilation automatically.
+          # 1. Enter the correct directory
           cd example/android
           
-          # We must provide the NDK path to the script
+          # 2. Tell the script where the NDK is
           export ANDROID_NDK=${{ steps.setup-ndk.outputs.ndk-path }}
           
-          # Make script executable and run it
-          chmod +x build.sh
-          ./build.sh --env arm64-v8a
+          # 3. Update the script to build ONLY the JSON interface (faster/smaller for Flutter)
+          # By default it builds JNI, we want the raw .so for handy_tdlib
+          sed -i 's/TD_ENABLE_JNI=ON/TD_ENABLE_JNI=OFF/g' build-tdlib.sh
           
+          # 4. Make script executable and run it
+          chmod +x build-tdlib.sh
+          ./build-tdlib.sh --env arm64-v8a
+
       - name: Prepare Artifacts
         run: |
-          # The script puts the results in example/android/dist
+          # The script generates output in its own subdirectories
           mkdir -p output/arm64-v8a
-          cp example/android/dist/arm64-v8a/libtdjson.so output/arm64-v8a/
+          find example/android -name "libtdjson.so" -exec cp {} output/arm64-v8a/ \;
 
       - name: Upload TDLib
         uses: actions/upload-artifact@v4
         with:
           name: tdlib-android-arm64
           path: output/
+          retention-days: 7

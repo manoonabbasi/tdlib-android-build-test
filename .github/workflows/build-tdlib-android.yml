@@ -1,4 +1,4 @@
-name: Build TDLib for Android (Verified 2026)
+name: Build TDLib for Android (Final 2026)
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ jobs:
           repository: tdlib/td
           ref: master
 
-      - name: Install Dependencies
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake gperf php-cli zlib1g-dev libssl-dev build-essential
@@ -24,20 +24,21 @@ jobs:
         with:
           ndk-version: r27c
 
-      # PASS 1: Generate source files using the native Linux compiler
-      - name: Generate Source Files
+      - name: 🛠️ PASS 1: Build Native Tools
         run: |
+          # We need to generate the C++ source files using Linux tools first
           php SplitSource.php
           mkdir build-native
           cd build-native
-          cmake ..
-          cmake --build . --target prepare_cross_compiling -j2
+          cmake .. -DCMAKE_BUILD_TYPE=Release
+          # This creates the 'tl_generate_common' and other generator tools
+          cmake --build . --target prepare_cross_compiling -j$(nproc)
 
-      # PASS 2: Cross-compile the actual Android .so file
-      - name: Build Android Library
+      - name: 📱 PASS 2: Build Android Library
         run: |
           mkdir build-android
           cd build-android
+          # We point to the NDK and tell CMake where the NATIVE tools from Pass 1 are
           cmake .. \
             -DCMAKE_TOOLCHAIN_FILE=${{ steps.setup-ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=arm64-v8a \
@@ -47,11 +48,16 @@ jobs:
             -DTD_ENABLE_JNI=OFF \
             -G "Unix Makefiles"
           
-          # Now that 'prepare_cross_compiling' ran in Pass 1, this target WILL exist
+          # This command will now find the 'tdjson' target because Pass 1 prepared the files
           cmake --build . --target tdjson -j2
+
+      - name: 📦 Prepare Artifact
+        run: |
+          mkdir -p output/arm64-v8a
+          cp build-android/libtdjson.so output/arm64-v8a/
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: tdlib-android-arm64
-          path: build-android/libtdjson.so
+          path: output/

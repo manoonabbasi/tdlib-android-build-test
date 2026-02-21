@@ -51,7 +51,7 @@ jobs:
             -G "Unix Makefiles"
 
           # Use j2 to avoid hitting the 7GB RAM limit of the runner
-          cmake --build . --target tdjson -j2
+          cmake --build . --target TdJson -j2
 
       - name: Prepare Artifacts
         run: |

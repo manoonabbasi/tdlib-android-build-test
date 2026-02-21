@@ -1,10 +1,10 @@
-name: Build TDLib for Android
+name: Build TDLib for Android (2026 Pro)
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-android:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout TDLib
@@ -13,32 +13,35 @@ jobs:
           repository: tdlib/td
           ref: master
 
-      - name: Install Native Dependencies
+      - name: Install Native Build Tools
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake gperf php-cli zlib1g-dev libssl-dev
 
-      - name: Setup NDK
+      - name: Setup Android NDK r27c
         id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r27c
 
-      # This is the "Magic" step: We use a script to build OpenSSL for Android architecture
-      - name: Build OpenSSL for Android
+      # Step 1: Get OpenSSL for Android (The Missing Piece)
+      - name: Clone OpenSSL for Android
         run: |
-          git clone https://github.com/KDAB/android_openssl.git
-          # This provides a helper but we need the actual compiled libs.
-          # For GitHub Actions, it's often easier to use a prebuilt or a specific cross-compile script.
-          # Alternatively, we can let TDLib find the NDK-provided ones or a unified builder.
-          
+          git clone https://github.com/KDAB/android_openssl.git ../android_openssl
+
+      # Step 2: Build TDLib with correct paths
       - name: Build TDLib (arm64-v8a)
         run: |
+          # Crucial: Split files to avoid "Out of Memory" crashes on GitHub
           php SplitSource.php
+          
           mkdir build-arm64
           cd build-arm64
           
-          # We point to the NDK and turn OFF JNI for Flutter FFI compatibility
+          # We point OPENSSL_ROOT_DIR to the Linux one temporarily just to satisfy 
+          # CMake's initial check, but the NDK toolchain handles the cross-compile logic.
+          # Alternatively, TDLib has an internal fallback for OpenSSL if configured correctly.
+          
           cmake .. \
             -DCMAKE_TOOLCHAIN_FILE=${{ steps.setup-ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=arm64-v8a \
@@ -47,14 +50,16 @@ jobs:
             -DTD_ENABLE_JNI=OFF \
             -G "Unix Makefiles"
 
-          # Only build the json interface to save time/memory
-          cmake --build . --target tdjson -j$(nproc)
-          
-          mkdir -p ../output/arm64-v8a
-          cp libtdjson.so ../output/arm64-v8a/
+          # Use j2 to avoid hitting the 7GB RAM limit of the runner
+          cmake --build . --target tdjson -j2
 
-      - name: Upload
+      - name: Prepare Artifacts
+        run: |
+          mkdir -p output/arm64-v8a
+          cp build-arm64/libtdjson.so output/arm64-v8a/
+
+      - name: Upload TDLib
         uses: actions/upload-artifact@v4
         with:
-          name: tdlib-android-so
+          name: tdlib-android-arm64
           path: output/

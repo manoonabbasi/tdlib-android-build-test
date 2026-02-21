@@ -4,51 +4,56 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-arm64:
+  build-android:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout latest TDLib
+      - name: Checkout TDLib
         uses: actions/checkout@v4
         with:
           repository: tdlib/td
           ref: master
+          fetch-depth: 1
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake gperf php-cli zlib1g-dev libssl-dev
 
       - name: Setup Android NDK r27c
+        id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r27c
 
-      - name: Build TDLib arm64-v8a (fixed path handling)
+      - name: Build TDLib arm64-v8a
         run: |
-          pwd  # show current dir
-          ls -la  # show files
-
-          # Create build dir from root
-          mkdir -p build-arm64
-
-          # Run cmake from inside build dir
-          cd build-arm64 || exit 1
-
+          # 1. Prepare output directory
+          mkdir -p output/arm64-v8a
+          
+          # 2. Run SplitSource to save memory (prevents OOM on GitHub runners)
+          php SplitSource.php
+          
+          # 3. Configure CMake
+          mkdir build-arm64
+          cd build-arm64
           cmake .. \
-            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake \
+            -DCMAKE_TOOLCHAIN_FILE=${{ steps.setup-ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-24 \
-            -DANDROID_STL=c++_shared \
             -DCMAKE_BUILD_TYPE=Release \
-            -DTD_ENABLE_JNI=ON \
+            -DTD_ENABLE_JNI=OFF \
             -G "Unix Makefiles"
 
-          cmake --build . --target tdjson_shared -j2 || cmake --build . --target tdjson -j2
+          # 4. Build only the JSON interface (faster and what you need for Flutter)
+          cmake --build . --target tdjson -j$(nproc)
 
-          mkdir -p ../output/arm64-v8a
-          cp libtdjson.so ../output/arm64-v8a/ 2>/dev/null || cp libtdjson_shared.so ../output/arm64-v8a/libtdjson.so 2>/dev/null
-
-          ls -la ../output/arm64-v8a/
-
-      - name: Upload TDLib
+          # 5. Move binary to output
+          cp libtdjson.so ../output/arm64-v8a/
+          
+      - name: Upload TDLib Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: tdlib-android-arm64
+          name: tdlib-android-release
           path: output/
-          retention-days: 30
+          retention-days: 7

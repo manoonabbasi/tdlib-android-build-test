@@ -1,10 +1,10 @@
-name: Build TDLib for Android
+name: Build TDLib for Android (Verified 2026)
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-android:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout TDLib
@@ -12,30 +12,32 @@ jobs:
         with:
           repository: tdlib/td
           ref: master
-          fetch-depth: 1
 
-      - name: Install Build Tools
+      - name: Install Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake gperf php-cli zlib1g-dev libssl-dev build-essential
 
-      - name: Setup Android NDK r27c
+      - name: Setup Android NDK
         id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r27c
 
-      - name: Build TDLib (arm64-v8a)
+      # PASS 1: Generate source files using the native Linux compiler
+      - name: Generate Source Files
         run: |
-          # 1. Prepare source files to prevent Out-of-Memory crashes
           php SplitSource.php
-          
-          # 2. Create and enter build directory
+          mkdir build-native
+          cd build-native
+          cmake ..
+          cmake --build . --target prepare_cross_compiling -j2
+
+      # PASS 2: Cross-compile the actual Android .so file
+      - name: Build Android Library
+        run: |
           mkdir build-android
           cd build-android
-          
-          # 3. Direct CMake call
-          # This explicitly sets the STL to avoid the error you saw earlier
           cmake .. \
             -DCMAKE_TOOLCHAIN_FILE=${{ steps.setup-ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=arm64-v8a \
@@ -44,20 +46,12 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DTD_ENABLE_JNI=OFF \
             -G "Unix Makefiles"
-
-          # 4. Compile the library
-          # We use -j2 because free GitHub runners only have 7GB of RAM
+          
+          # Now that 'prepare_cross_compiling' ran in Pass 1, this target WILL exist
           cmake --build . --target tdjson -j2
 
-      - name: Prepare and Upload Artifact
-        run: |
-          mkdir -p output/arm64-v8a
-          # Copy the compiled library to our output folder
-          cp build-android/libtdjson.so output/arm64-v8a/
-          
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: tdlib-android-arm64
-          path: output/
-          retention-days: 5
+          path: build-android/libtdjson.so

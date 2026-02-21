@@ -1,4 +1,4 @@
-name: Build Latest TDLib for Android (Feb 2026)
+name: Build TDLib for Android (Final)
 
 on:
   workflow_dispatch:
@@ -19,32 +19,29 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake gperf php-cli zlib1g-dev libssl-dev build-essential
 
-      - name: Setup Android NDK r27c
+      - name: Setup Android NDK
         id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r27c
 
-      - name: Build TDLib (arm64-v8a)
+      - name: Build TDLib arm64-v8a
         run: |
-          # 1. Enter the correct directory
           cd example/android
           
-          # 2. Tell the script where the NDK is
-          export ANDROID_NDK=${{ steps.setup-ndk.outputs.ndk-path }}
-          
-          # 3. Update the script to build ONLY the JSON interface (faster/smaller for Flutter)
-          # By default it builds JNI, we want the raw .so for handy_tdlib
-          sed -i 's/TD_ENABLE_JNI=ON/TD_ENABLE_JNI=OFF/g' build-tdlib.sh
-          
-          # 4. Make script executable and run it
+          # The script expects: ./build-tdlib.sh <NDK_PATH> <SDK_PATH> <ARCH> <API_LEVEL>
+          # We use ANDROID_HOME which is pre-set on GitHub runners for the SDK path
           chmod +x build-tdlib.sh
-          ./build-tdlib.sh --env arm64-v8a
-
+          
+          # We force the script to use our NDK and target arm64
+          # Note: We use -j2 to prevent the GitHub runner from running out of RAM
+          ./build-tdlib.sh ${{ steps.setup-ndk.outputs.ndk-path }} $ANDROID_HOME arm64-v8a 24
+          
       - name: Prepare Artifacts
         run: |
-          # The script generates output in its own subdirectories
           mkdir -p output/arm64-v8a
+          # The script places built files in example/android/dist/lib/arm64-v8a
+          # We find the .so and copy it
           find example/android -name "libtdjson.so" -exec cp {} output/arm64-v8a/ \;
 
       - name: Upload TDLib
@@ -52,4 +49,3 @@ jobs:
         with:
           name: tdlib-android-arm64
           path: output/
-          retention-days: 7

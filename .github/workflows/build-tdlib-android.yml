@@ -34,7 +34,7 @@ jobs:
           # This creates the 'tl_generate_common' and other generator tools
           cmake --build . --target prepare_cross_compiling -j$(nproc)
 
-      - name: 📱 PASS 2: Build Android Library
+      - name: PASS 2: Build Android Library
         run: |
           mkdir build-android
           cd build-android
